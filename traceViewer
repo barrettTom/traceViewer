@@ -124,14 +124,16 @@ class TraceViewer(QMainWindow):
             root = tree.getroot()
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
                 times = list(map(int, traceVariable.findall("Timestamps")[0].text.split(',')))
-                for j in range(len(times)):
-                    times[j] = times[j] - times[0]
-                    times[j] = int(str(times[j])[0:5])
                 values = list(map(float, traceVariable.findall("Values")[0].text.split(',')))
+
                 tmp = {}
+                timedict = dict(enumerate(times))
+                stringaxis = pg.AxisItem(orientation="bottom")
+                stringaxis.setTicks([timedict.items()])
+
                 tmp['title'] = traceVariable.attrib['VarName']
-                tmp['plot'] = pg.PlotDataItem(times, values, name = tmp['title'], pen = (i, 10))
-                tmp['plots'] = pg.PlotDataItem(times, values, name = tmp['title'], pen = (i, 10))
+                tmp['plot'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10), axisItem={'bottom' : stringaxis})
+                tmp['plots'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10))
                 tmp['tnv'] = [times, values]
                 self.traceVariables.append(tmp)
             
