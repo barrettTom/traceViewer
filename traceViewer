@@ -134,7 +134,7 @@ class TraceViewer(QMainWindow):
                 tmp['title'] = traceVariable.attrib['VarName']
                 tmp['plot'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10), axisItem={'bottom' : stringaxis})
                 tmp['plots'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10))
-                tmp['tnv'] = [times, values]
+                tmp['tnv'] = [list(timedict.keys()), values]
                 self.traceVariables.append(tmp)
             
             self.selection.clear()
