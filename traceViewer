@@ -76,7 +76,7 @@ class TraceViewer(QMainWindow):
         self.splitButton.setChecked(False)
         viewMenu.addAction(self.splitButton)
 
-        self.syncButton = QAction('&Sync Split Axis', self)
+        self.syncButton = QAction('&Sync Split X Axis', self)
         self.syncButton.triggered.connect(self.syncToggle)
         self.syncButton.setCheckable(True)
         self.syncButton.setEnabled(False)
@@ -281,7 +281,7 @@ class TraceViewer(QMainWindow):
                 r = item.viewRange()
                 if r != plot[0].viewRange():
                     plot[0].getPlotItem().blockSignals(True)
-                    plot[0].setRange(xRange=r[0], yRange=r[1])
+                    plot[0].setRange(xRange=r[0])
                     plot[0].getPlotItem().blockSignals(False)
             item.blockSignals(False)
 
