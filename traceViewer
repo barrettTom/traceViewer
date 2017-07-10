@@ -7,6 +7,31 @@ import xml.etree.ElementTree as ET
 import pyqtgraph as pg
 import sys
 
+import numpy as np
+
+class MyStringAxis(pg.AxisItem):
+    def __init__(self, xdict, *args, **kwargs):
+        pg.AxisItem.__init__(self, *args, **kwargs)
+        self.x_values = np.asarray(list(xdict.keys()))
+        self.x_strings = list(xdict.values())
+
+    def tickStrings(self, values, scale, spacing):
+
+        strings = []
+        for v in values:
+            # vs is the original tick value
+            vs = v * scale
+            # if we have vs in our values, show the string
+            # otherwise show nothing
+            if vs in self.x_values:
+                # Find the string with x_values closest to vs
+                vstr = self.x_strings[np.abs(self.x_values-vs).argmin()]
+            else:
+                vstr = ""
+            strings.append(vstr)
+
+        return strings
+
 class setDialog(QDialog):
     def __init__(self):
         super(setDialog, self).__init__()
@@ -43,7 +68,6 @@ class setDialog(QDialog):
             return result
         else:
             return False
-
 
 class TraceViewer(QMainWindow):
     def __init__(self):
@@ -123,23 +147,25 @@ class TraceViewer(QMainWindow):
             tree = ET.parse(path[0])
             root = tree.getroot()
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
-                times = list(map(int, traceVariable.findall("Timestamps")[0].text.split(',')))
+                times = list(map(str, traceVariable.findall("Timestamps")[0].text.split(',')))
                 values = list(map(float, traceVariable.findall("Values")[0].text.split(',')))
 
                 tmp = {}
                 timedict = dict(enumerate(times))
-                stringaxis = pg.AxisItem(orientation="bottom")
-                stringaxis.setTicks([timedict.items()])
+                if i == 0:
+                    self.rightGrid.removeWidget(self.plot)
+                    self.timedict = timedict
+                    self.plot = pg.PlotWidget(axisItems={'bottom' : MyStringAxis(self.timedict, orientation="bottom")})
+                    self.legend = pg.LegendItem()
+                    self.legend.setParentItem(self.plot.getPlotItem())
+                    self.rightGrid.addWidget(self.plot)
 
                 tmp['title'] = traceVariable.attrib['VarName']
-                tmp['plot'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10), axisItem={'bottom' : stringaxis})
-                tmp['plots'] = pg.PlotDataItem(list(timedict.keys()), values, name = tmp['title'], pen = (i, 10))
-                tmp['tnv'] = [list(timedict.keys()), values]
+                tmp['plot'] = pg.PlotDataItem(list(timedict), values, name = tmp['title'], pen = (i, 10))
+                tmp['plots'] = pg.PlotDataItem(list(timedict), values, name = tmp['title'], pen = (i, 10))
+                tmp['tnv'] = [list(timedict), values]
                 self.traceVariables.append(tmp)
             
-            self.selection.clear()
-            self.plot.clear()
-
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
                 for traceVariable in self.traceVariables:
@@ -174,7 +200,7 @@ class TraceViewer(QMainWindow):
                 self.plot.addItem(traceVariable['plot'])
                 self.legend.addItem(traceVariable['plot'], item.data(0))
 
-                p = pg.PlotWidget()
+                p = pg.PlotWidget(axisItems={'bottom' : MyStringAxis(self.timedict, orientation="bottom")})
                 if hide:
                     p.hide()
                 l = pg.LegendItem()
