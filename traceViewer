@@ -1,118 +1,21 @@
 #!/usr/bin/python3 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QAction, QListWidgetItem, QFileDialog
-from PyQt5.QtWidgets import QGridLayout, QDialog, QDialogButtonBox, QListWidget, QLabel, QLineEdit, QFrame
+from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QListWidgetItem, QFileDialog
+from PyQt5.QtWidgets import QGridLayout, QListWidget, QFrame
 from PyQt5.QtCore import Qt, QTimer
 
 import xml.etree.ElementTree as ET
 import pyqtgraph as pg
 import sys
 
-import numpy as np
-
-class MyStringAxis(pg.AxisItem):
-    def __init__(self, xdict, *args, **kwargs):
-        pg.AxisItem.__init__(self, *args, **kwargs)
-        self.x_values = np.asarray(list(xdict.keys()))
-        self.x_strings = list(xdict.values())
-
-    def tickStrings(self, values, scale, spacing):
-
-        strings = []
-        for v in values:
-            # vs is the original tick value
-            vs = v * scale
-            # if we have vs in our values, show the string
-            # otherwise show nothing
-            if vs in self.x_values:
-                # Find the string with x_values closest to vs
-                vstr = self.x_strings[np.abs(self.x_values-vs).argmin()]
-            else:
-                vstr = ""
-            strings.append(vstr)
-
-        return strings
-
-class setDialog(QDialog):
-    def __init__(self):
-        super(setDialog, self).__init__()
-
-        layout = QGridLayout()
-        self.setLayout(layout)
-
-        layout.addWidget(QLabel("X:",self), 0, 0)
-        layout.addWidget(QLabel("Y:",self), 1, 0)
-
-        self.x0 = QLineEdit("0",self)
-        layout.addWidget(self.x0, 0, 1)
-        self.x1 = QLineEdit("1",self)
-        layout.addWidget(self.x1, 0, 2)
-
-        self.y0 = QLineEdit("0",self)
-        layout.addWidget(self.y0, 1, 1)
-        self.y1 = QLineEdit("1",self)
-        layout.addWidget(self.y1, 1, 2)
-
-        buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttonBox.button(QDialogButtonBox.Ok).clicked.connect(self.accept)
-        buttonBox.button(QDialogButtonBox.Cancel).clicked.connect(self.reject)
-
-        layout.addWidget(buttonBox, 2, 0, 1, 3)
-
-    @staticmethod
-    def getInfo():
-        dialog = setDialog()
-        result = dialog.exec_()
-        if result:
-            result = [dialog.x0.text(), dialog.x1.text(), dialog.y0.text(), dialog.y1.text()]
-            result = list(map(float, result))
-            return result
-        else:
-            return False
+from lib.stringAxis import stringAxis
+from lib.setDialog import setDialog
+from lib.menubar import menubar
 
 class TraceViewer(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        menu = self.menuBar()
-        fileMenu = menu.addMenu('&File')
-        openButton = QAction('&Open', self)
-        openButton.triggered.connect(self.open)
-        fileMenu.addAction(openButton)
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update)
-        self.timer.start(50)
-
-        self.status = self.statusBar()
-
-        viewMenu = menu.addMenu('&View')
-        autoButton = QAction('&Auto Axis', self)
-        autoButton.triggered.connect(self.auto)
-        viewMenu.addAction(autoButton)
-
-        setButton = QAction('&Set Axis...', self)
-        setButton.triggered.connect(self.set)
-        viewMenu.addAction(setButton)
-
-        self.splitButton = QAction('&Split Axis', self)
-        self.splitButton.triggered.connect(self.split)
-        self.splitButton.setCheckable(True)
-        self.splitButton.setChecked(False)
-        viewMenu.addAction(self.splitButton)
-
-        self.syncButton = QAction('&Sync Split X Axis', self)
-        self.syncButton.triggered.connect(self.syncToggle)
-        self.syncButton.setCheckable(True)
-        self.syncButton.setEnabled(False)
-        self.syncButton.setChecked(False)
-        viewMenu.addAction(self.syncButton)
-        self.sync = False
-
-        self.regionButton = QAction('&Toggle Region', self)
-        self.regionButton.triggered.connect(self.region)
-        self.regionButton.setCheckable(True)
-        self.regionButton.setChecked(False)
-        viewMenu.addAction(self.regionButton)
+        menubar(self)
         
         frame = QSplitter()
         self.setCentralWidget(frame)
@@ -139,32 +42,36 @@ class TraceViewer(QMainWindow):
         self.plots = []
         self.legends = []
 
+        if len(sys.argv) == 2:
+            self.open(sys.argv[1])
+
         self.show()
 
-    def open(self):
-        path = QFileDialog.getOpenFileName(self)
-        if path[0]:
-            tree = ET.parse(path[0])
+    def open(self, path=None):
+        if not path:
+            path = QFileDialog.getOpenFileName(self)[0]
+        if path:
+            tree = ET.parse(path)
             root = tree.getroot()
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
-                times = list(map(str, traceVariable.findall("Timestamps")[0].text.split(',')))
-                values = list(map(float, traceVariable.findall("Values")[0].text.split(',')))
+                times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
+                values = list(map(float, traceVariable.find("Values").text.split(',')))
 
-                tmp = {}
                 timedict = dict(enumerate(times))
                 if i == 0:
                     self.rightGrid.removeWidget(self.plot)
                     self.timedict = timedict
-                    self.plot = pg.PlotWidget(axisItems={'bottom' : MyStringAxis(self.timedict, orientation="bottom")})
+                    self.plot = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
                     self.legend = pg.LegendItem()
                     self.legend.setParentItem(self.plot.getPlotItem())
                     self.rightGrid.addWidget(self.plot)
 
-                tmp['title'] = traceVariable.attrib['VarName']
-                tmp['plot'] = pg.PlotDataItem(list(timedict), values, name = tmp['title'], pen = (i, 10))
-                tmp['plots'] = pg.PlotDataItem(list(timedict), values, name = tmp['title'], pen = (i, 10))
-                tmp['tnv'] = [list(timedict), values]
-                self.traceVariables.append(tmp)
+                tVar = {}
+                tVar['title'] = traceVariable.attrib['VarName']
+                tVar['plot'] = pg.PlotDataItem(list(timedict), values, name = tVar['title'], pen = (i, 10))
+                tVar['plots'] = pg.PlotDataItem(list(timedict), values, name = tVar['title'], pen = (i, 10))
+                tVar['tnv'] = [list(timedict), values]
+                self.traceVariables.append(tVar)
             
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
@@ -200,7 +107,7 @@ class TraceViewer(QMainWindow):
                 self.plot.addItem(traceVariable['plot'])
                 self.legend.addItem(traceVariable['plot'], item.data(0))
 
-                p = pg.PlotWidget(axisItems={'bottom' : MyStringAxis(self.timedict, orientation="bottom")})
+                p = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
                 if hide:
                     p.hide()
                 l = pg.LegendItem()
@@ -268,8 +175,8 @@ class TraceViewer(QMainWindow):
                     sindex = min(range(len(self.traceVariables[i]['tnv'][0])),
                             key = lambda x :abs(self.traceVariables[i]['tnv'][0][x] - points[1]))
 
-                    display = " (" + str(self.traceVariables[i]['tnv'][1][findex]) + ','
-                    display += str(self.traceVariables[i]['tnv'][1][sindex]) + ')'
+                    display = " (" + str(self.traceVariables[i]['tnv'][1][findex])[:8] + ','
+                    display += str(self.traceVariables[i]['tnv'][1][sindex])[:8] + ')'
 
                     item.setData(Qt.DisplayRole, self.traceVariables[i]['title'] + display)
                 else:
