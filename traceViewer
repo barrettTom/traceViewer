@@ -1,7 +1,7 @@
 #!/usr/bin/python3 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QListWidgetItem, QFileDialog
 from PyQt5.QtWidgets import QGridLayout, QListWidget, QFrame
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 
 import xml.etree.ElementTree as ET
 import pyqtgraph as pg
@@ -132,11 +132,12 @@ class TraceViewer(QMainWindow):
                     if plot[1] == i:
                         plot[0].hide()
                         self.plots.remove(plot)
-
                 break
 
     def auto(self):
         self.plot.autoRange()
+        for plot in self.plots:
+            plot[0].autoRange()
 
     def set(self):
         r = setDialog.getInfo()
