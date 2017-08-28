@@ -164,8 +164,13 @@ class TraceViewer(QMainWindow):
 
     def update(self):
         if self.regionButton.isChecked():
-            tmp = self.region.getRegion()
-            tmp = "delta = " + str(tmp[1]-tmp[0])
+            try:
+                tmp = self.region.getRegion()
+                f = int(self.timedict[int(tmp[1])])
+                s = int(self.timedict[int(tmp[0])])
+                tmp = "delta = " + str(f-s)
+            except:
+                tmp = "out of bounds error"
             self.status.showMessage(tmp)
             for i in range(self.selection.count()):
                 item = self.selection.item(i)
