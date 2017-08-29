@@ -11,7 +11,7 @@ class menubar():
 
         view.timer = QTimer()
         view.timer.timeout.connect(view.update)
-        view.timer.start(50)
+        view.timer.start(100)
 
         view.status = view.statusBar()
 
@@ -19,10 +19,6 @@ class menubar():
         autoButton = QAction('&Auto Axis', view)
         autoButton.triggered.connect(view.auto)
         viewMenu.addAction(autoButton)
-
-        setButton = QAction('&Set Axis...', view)
-        setButton.triggered.connect(view.set)
-        viewMenu.addAction(setButton)
 
         view.splitButton = QAction('&Split Axis', view)
         view.splitButton.triggered.connect(view.split)

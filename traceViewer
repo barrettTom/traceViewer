@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QListWidgetIte
 from PyQt5.QtWidgets import QGridLayout, QListWidget, QFrame
 from PyQt5.QtCore import Qt
 
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 import pyqtgraph as pg
 import sys
 
@@ -40,7 +40,6 @@ class TraceViewer(QMainWindow):
         
         self.traceVariables = []
         self.plots = []
-        self.legends = []
 
         if len(sys.argv) == 2:
             self.open(sys.argv[1])
@@ -53,9 +52,9 @@ class TraceViewer(QMainWindow):
         if path:
             tree = ET.parse(path)
             root = tree.getroot()
+
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
                 times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
-                values = list(map(float, traceVariable.find("Values").text.split(',')))
 
                 timedict = dict(enumerate(times))
                 if i == 0:
@@ -66,12 +65,10 @@ class TraceViewer(QMainWindow):
                     self.legend.setParentItem(self.plot.getPlotItem())
                     self.rightGrid.addWidget(self.plot)
 
-                tVar = {}
-                tVar['title'] = traceVariable.attrib['VarName']
-                tVar['plot'] = pg.PlotDataItem(list(timedict), values, name = tVar['title'], pen = (i, 10))
-                tVar['plots'] = pg.PlotDataItem(list(timedict), values, name = tVar['title'], pen = (i, 10))
-                tVar['tnv'] = [list(timedict), values]
-                self.traceVariables.append(tVar)
+                self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
+                                            'timedict'  : list(timedict),
+                                            'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
+                                            })
             
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
@@ -104,49 +101,36 @@ class TraceViewer(QMainWindow):
     def add(self, item, hide = True):
         for i, traceVariable in enumerate(self.traceVariables):
             if traceVariable['title'] == item.data(0):
-                self.plot.addItem(traceVariable['plot'])
-                self.legend.addItem(traceVariable['plot'], item.data(0))
+                tmp = pg.PlotDataItem(traceVariable['timedict'], traceVariable['values'], name = traceVariable['title'], pen = (i, 10))
+                self.plot.addItem(tmp)
+                self.legend.addItem(tmp, item.data(0))
 
-                p = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
-                if hide:
-                    p.hide()
-                l = pg.LegendItem()
-                j = p.getPlotItem()
-                l.setParentItem(j)
-                j.sigRangeChanged.connect(self.syncAxis)
-                l.addItem(traceVariable['plots'], item.data(0))
-                p.addItem(traceVariable['plots'])
-                self.plots.append([p, i])
-                self.legends.append(l)
-                self.rightGrid.addWidget(p)
+                if self.splitButton.isChecked():
+                    self.addSplitGraph(traceVariable, item, i)
 
                 break
 
     def remove(self, item):
         for i, traceVariable in enumerate(self.traceVariables):
             if traceVariable['title'] == item.data(0):
-                self.plot.removeItem(traceVariable['plot'])
-                self.legend.removeItem(item.data(0))
+                for plotdataitem in self.plot.getPlotItem().listDataItems():
+                    if plotdataitem.name() == item.data(0):
+                        self.plot.removeItem(plotdataitem)
 
-                for plot in self.plots:
-                    if plot[1] == i:
-                        plot[0].hide()
-                        self.plots.remove(plot)
+                self.legend.removeItem(item.data(0))
+                
+                if self.splitButton.isChecked():
+                    for plot in self.plots:
+                        if plot.getPlotItem().listDataItems()[0].name() == item.data(0):
+                            plot.hide()
+                            self.rightGrid.removeWidget(plot)
+                            break
                 break
 
     def auto(self):
         self.plot.autoRange()
         for plot in self.plots:
-            plot[0].autoRange()
-
-    def set(self):
-        r = setDialog.getInfo()
-        if r:
-            if not self.splitButton.isChecked():
-                self.plot.setRange(xRange=r[0:2], yRange=r[2:4])
-            else:
-                for plot in self.plots:
-                    plot[0].setRange(xRange=r[0:2], yRange=r[2:4])
+            plot.autoRange()
 
     def region(self):
         if not self.regionButton.isChecked():
@@ -176,17 +160,15 @@ class TraceViewer(QMainWindow):
                 item = self.selection.item(i)
                 if item.checkState() == Qt.Checked:
                     points = self.region.getRegion()
-                    findex = min(range(len(self.traceVariables[i]['tnv'][0])),
-                            key = lambda x :abs(self.traceVariables[i]['tnv'][0][x] - points[0]))
-                    sindex = min(range(len(self.traceVariables[i]['tnv'][0])),
-                            key = lambda x :abs(self.traceVariables[i]['tnv'][0][x] - points[1]))
+                    findex = min(range(len(self.traceVariables[i]['timedict'])),
+                            key = lambda x :abs(self.traceVariables[i]['timedict'][x] - points[0]))
+                    sindex = min(range(len(self.traceVariables[i]['timedict'])),
+                            key = lambda x :abs(self.traceVariables[i]['timedict'][x] - points[1]))
 
-                    display = " (" + str(self.traceVariables[i]['tnv'][1][findex])[:8] + ','
-                    display += str(self.traceVariables[i]['tnv'][1][sindex])[:8] + ')'
+                    display = " (" + str(self.traceVariables[i]['values'][findex])[:8] + ','
+                    display += str(self.traceVariables[i]['values'][sindex])[:8] + ')'
 
                     item.setData(Qt.DisplayRole, self.traceVariables[i]['title'] + display)
-                else:
-                    item.setData(Qt.DisplayRole, self.traceVariables[i]['title'])
         else:
             self.status.showMessage(" ")
             for i in range(self.selection.count()):
@@ -196,16 +178,27 @@ class TraceViewer(QMainWindow):
     def split(self):
         if self.splitButton.isChecked():
             self.syncButton.setEnabled(True)
+
             self.plot.hide()
-            for plot in self.plots:
-                plot[0].show()
+
+            for i in range(self.selection.count()):
+                item = self.selection.item(i)
+                if item.checkState() == Qt.Checked:
+                    for traceVariable in self.traceVariables:
+                        if traceVariable['title'] == item.data(0):
+                            self.addSplitGraph(traceVariable, item, i)
 
             self.splitButton.setChecked(True)
 
         else:
             self.syncButton.setEnabled(False)
+
             for plot in self.plots:
-                plot[0].hide()
+                plot.hide()
+                self.rightGrid.removeWidget(plot)
+            
+            self.plots = []
+
             self.plot.show()
 
             self.splitButton.setChecked(False)
@@ -218,11 +211,26 @@ class TraceViewer(QMainWindow):
             item.blockSignals(True)
             for plot in self.plots:
                 r = item.viewRange()
-                if r != plot[0].viewRange():
-                    plot[0].getPlotItem().blockSignals(True)
-                    plot[0].setRange(xRange=r[0])
-                    plot[0].getPlotItem().blockSignals(False)
+                if r != plot.viewRange():
+                    plot.getPlotItem().blockSignals(True)
+                    plot.setRange(xRange=r[0])
+                    plot.getPlotItem().blockSignals(False)
             item.blockSignals(False)
+
+    def addSplitGraph(self, traceVariable, item, i):
+        p = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
+        l = pg.LegendItem()
+        j = p.getPlotItem()
+        l.setParentItem(j)
+        j.sigRangeChanged.connect(self.syncAxis)
+        tmp = pg.PlotDataItem(traceVariable['timedict'], 
+                              traceVariable['values'], 
+                              name = traceVariable['title'], 
+                              pen = (i, 10))
+        l.addItem(tmp, item.data(0))
+        p.addItem(tmp)
+        self.plots.append(p)
+        self.rightGrid.addWidget(p)
 
 app = QApplication(sys.argv)
 
