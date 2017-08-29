@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt
 import lxml.etree as ET
 import pyqtgraph as pg
 import sys
+import threading
 
 from lib.stringAxis import stringAxis
 from lib.setDialog import setDialog
@@ -46,30 +47,45 @@ class TraceViewer(QMainWindow):
 
         self.show()
 
+    def openThread(self, i, traceVariable):
+        times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
+        timedict = dict(enumerate(times))
+        self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
+                                    'timedict'  : list(timedict),
+                                    'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
+                                    })
+
     def open(self, path=None):
         if not path:
             path = QFileDialog.getOpenFileName(self)[0]
         if path:
             tree = ET.parse(path)
             root = tree.getroot()
-
+           
+            threads = []
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
-                times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
-
-                timedict = dict(enumerate(times))
                 if i == 0:
+                    times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
+                    timedict = dict(enumerate(times))
+                    self.plot.hide()
                     self.rightGrid.removeWidget(self.plot)
                     self.timedict = timedict
                     self.plot = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
                     self.legend = pg.LegendItem()
                     self.legend.setParentItem(self.plot.getPlotItem())
                     self.rightGrid.addWidget(self.plot)
+                    self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
+                                                'timedict'  : list(timedict),
+                                                'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
+                                                })
+                else:
+                    t = threading.Thread( target = self.openThread, args = (i, traceVariable))
+                    t.start()
+                    threads.append(t)
 
-                self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
-                                            'timedict'  : list(timedict),
-                                            'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
-                                            })
-            
+            for thread in threads:
+                thread.join()
+
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
                 for traceVariable in self.traceVariables:
