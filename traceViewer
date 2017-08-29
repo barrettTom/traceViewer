@@ -1,12 +1,13 @@
 #!/usr/bin/python3 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QListWidgetItem, QFileDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QListWidgetItem, QFileDialog, QInputDialog, QProgressDialog
 from PyQt5.QtWidgets import QGridLayout, QListWidget, QFrame
 from PyQt5.QtCore import Qt
 
 import lxml.etree as ET
 import pyqtgraph as pg
 import sys
-import threading
+from threading import Thread
+from scipy import signal
 
 from lib.stringAxis import stringAxis
 from lib.setDialog import setDialog
@@ -47,25 +48,51 @@ class TraceViewer(QMainWindow):
 
         self.show()
 
-    def openThread(self, i, traceVariable):
-        times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
+    def openThread(self, i, traceVariable, resample, samples):
+        times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
+        values = list(map(float, traceVariable.find("Values").text.split(',')))
+        
+        if resample:
+            values, times = signal.resample(values, samples, t = times)
+            values = signal.cubic(values)
+
+        times = list(map(int, times))
+        times = list(map(str, times))
+
         timedict = dict(enumerate(times))
         self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
                                     'timedict'  : list(timedict),
-                                    'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
+                                    'values'    : values
                                     })
-
     def open(self, path=None):
         if not path:
             path = QFileDialog.getOpenFileName(self)[0]
         if path:
             tree = ET.parse(path)
             root = tree.getroot()
-           
+          
             threads = []
+            samples = 0
+            resample = False
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
                 if i == 0:
-                    times = list(map(str, traceVariable.find("Timestamps").text.split(',')))
+                    times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
+                    values = list(map(float, traceVariable.find("Values").text.split(',')))
+
+                    if len(times) > 100000:
+                        string = "You have " + str(len(times)) + " samples in this trend.\n"
+                        string+= "This can cause unwanted slowness of the program.\n"
+                        string+= "A max range of 50000 to 80000 depending on the performace of the computer is desired.\n"
+                        string+= "You can decrease the number of samples below.\n"
+                        string+= "IMPORTANT:\nIf changed, opening of the trend will take significantly longer and there may be minor phase shifting.\n" 
+                        samples, resample = QInputDialog.getInt(self, "Warning:", string, len(times))
+                        if resample:
+                            values, times = signal.resample(values, samples, t = times)
+                            values = signal.cubic(values)
+
+                    times = list(map(int, times))
+                    times = list(map(str, times))
+
                     timedict = dict(enumerate(times))
                     self.plot.hide()
                     self.rightGrid.removeWidget(self.plot)
@@ -76,15 +103,22 @@ class TraceViewer(QMainWindow):
                     self.rightGrid.addWidget(self.plot)
                     self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
                                                 'timedict'  : list(timedict),
-                                                'values'    : list(map(float, traceVariable.find("Values").text.split(',')))
+                                                'values'    : values
                                                 })
+                    pb = QProgressDialog("Generating...", "Cancel", 0, len(root.findall(".//TraceVariable")), self)
+
                 else:
-                    t = threading.Thread( target = self.openThread, args = (i, traceVariable))
+                    t = Thread( target = self.openThread, args = (i, traceVariable, resample, samples))
                     t.start()
                     threads.append(t)
 
+                pb.setValue(i)
+                QApplication.processEvents()
+
             for thread in threads:
                 thread.join()
+
+            pb.close()
 
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
