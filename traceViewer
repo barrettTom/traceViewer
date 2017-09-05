@@ -7,7 +7,6 @@ import lxml.etree as ET
 import pyqtgraph as pg
 import sys
 from threading import Thread
-from scipy import signal
 
 from lib.stringAxis import stringAxis
 from lib.setDialog import setDialog
@@ -48,13 +47,13 @@ class TraceViewer(QMainWindow):
 
         self.show()
 
-    def openThread(self, i, traceVariable, resample, samples):
+    def openThread(self, traceVariable, resample, factor):
         times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
         values = list(map(float, traceVariable.find("Values").text.split(',')))
         
         if resample:
-            values, times = signal.resample(values, samples, t = times)
-            values = signal.cubic(values)
+            values = values[::factor]
+            times = times[::factor]
 
         times = list(map(int, times))
         times = list(map(str, times))
@@ -64,6 +63,7 @@ class TraceViewer(QMainWindow):
                                     'timedict'  : list(timedict),
                                     'values'    : values
                                     })
+
     def open(self, path=None):
         if not path:
             path = QFileDialog.getOpenFileName(self)[0]
@@ -73,7 +73,9 @@ class TraceViewer(QMainWindow):
           
             threads = []
             samples = 0
+            factor = 1
             resample = False
+
             for i, traceVariable in enumerate(root.iter("TraceVariable")):
                 if i == 0:
                     times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
@@ -82,13 +84,17 @@ class TraceViewer(QMainWindow):
                     if len(times) > 100000:
                         string = "You have " + str(len(times)) + " samples in this trend.\n"
                         string+= "This can cause unwanted slowness of the program.\n"
-                        string+= "A max range of 50000 to 80000 depending on the performace of the computer is desired.\n"
+                        string+= "A max range of 50000 to 90000 depending on the performace of the computer is desired.\n"
                         string+= "You can decrease the number of samples below.\n"
-                        string+= "IMPORTANT:\nIf changed, opening of the trend will take significantly longer and there may be minor phase shifting.\n" 
                         samples, resample = QInputDialog.getInt(self, "Warning:", string, len(times))
+
+                        if samples == len(times):
+                            resample = False
+                       
                         if resample:
-                            values, times = signal.resample(values, samples, t = times)
-                            values = signal.cubic(values)
+                            factor = round(len(values) / samples)
+                            values = values[::factor]
+                            times = times[::factor]
 
                     times = list(map(int, times))
                     times = list(map(str, times))
@@ -105,10 +111,11 @@ class TraceViewer(QMainWindow):
                                                 'timedict'  : list(timedict),
                                                 'values'    : values
                                                 })
+
                     pb = QProgressDialog("Generating...", "Cancel", 0, len(root.findall(".//TraceVariable")), self)
 
                 else:
-                    t = Thread( target = self.openThread, args = (i, traceVariable, resample, samples))
+                    t = Thread(target = self.openThread, args = (traceVariable, resample, factor))
                     t.start()
                     threads.append(t)
 
