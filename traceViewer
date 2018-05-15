@@ -70,6 +70,8 @@ class TraceViewer(QMainWindow):
         if not path:
             path = QFileDialog.getOpenFileName(self)[0]
         if path:
+            self.selection.clear()
+            self.traceVariables = []
             if "trace" in path.split(".")[-1]:
                 self.open_somachine(path)
             else:
@@ -270,7 +272,7 @@ class TraceViewer(QMainWindow):
                     s = time(int(shour), int(sminute), int(ssecond), int(sms))
                     s = datetime.combine(date.today(), s)
 
-                    tmp = str(f - s)
+                    tmp = "delta = " + str(f - s)
             except (KeyError, AttributeError):
                 tmp = "out of bounds error"
 
