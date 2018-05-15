@@ -6,7 +6,9 @@ from PyQt5.QtCore import Qt
 import lxml.etree as ET
 import pyqtgraph as pg
 import sys
+import csv
 from threading import Thread
+from datetime import date, time, datetime
 
 from lib.stringAxis import stringAxis
 from lib.setDialog import setDialog
@@ -68,64 +70,10 @@ class TraceViewer(QMainWindow):
         if not path:
             path = QFileDialog.getOpenFileName(self)[0]
         if path:
-            tree = ET.parse(path)
-            root = tree.getroot()
-          
-            threads = []
-            samples = 0
-            factor = 1
-            resample = False
-
-            for i, traceVariable in enumerate(root.iter("TraceVariable")):
-                if i == 0:
-                    times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
-                    values = list(map(float, traceVariable.find("Values").text.split(',')))
-
-                    if len(times) > 100000:
-                        string = "You have " + str(len(times)) + " samples in this trend.\n"
-                        string+= "This can cause unwanted slowness of the program.\n"
-                        string+= "A max range of 50000 to 90000 depending on the performace of the computer is desired.\n"
-                        string+= "You can decrease the number of samples below.\n"
-                        samples, resample = QInputDialog.getInt(self, "Warning:", string, len(times))
-
-                        if samples == len(times):
-                            resample = False
-                       
-                        if resample:
-                            factor = round(len(values) / samples)
-                            values = values[::factor]
-                            times = times[::factor]
-
-                    times = list(map(int, times))
-                    times = list(map(str, times))
-
-                    timedict = dict(enumerate(times))
-                    self.plot.hide()
-                    self.rightGrid.removeWidget(self.plot)
-                    self.timedict = timedict
-                    self.plot = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
-                    self.legend = pg.LegendItem()
-                    self.legend.setParentItem(self.plot.getPlotItem())
-                    self.rightGrid.addWidget(self.plot)
-                    self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
-                                                'timedict'  : list(timedict),
-                                                'values'    : values
-                                                })
-
-                    pb = QProgressDialog("Generating...", "Cancel", 0, len(root.findall(".//TraceVariable")), self)
-
-                else:
-                    t = Thread(target = self.openThread, args = (traceVariable, resample, factor))
-                    t.start()
-                    threads.append(t)
-
-                pb.setValue(i)
-                QApplication.processEvents()
-
-            for thread in threads:
-                thread.join()
-
-            pb.close()
+            if "trace" in path.split(".")[-1]:
+                self.open_somachine(path)
+            else:
+                self.open_studio5000(path)
 
             if len(self.traceVariables) > 0:
                 self.selection.setEnabled(True)
@@ -138,6 +86,104 @@ class TraceViewer(QMainWindow):
 
             else:
                 self.selection.setEnabled(False)
+
+    def open_somachine(self, path):
+        tree = ET.parse(path)
+        root = tree.getroot()
+
+        threads = []
+        samples = 0
+        factor = 1
+        resample = False
+
+        for i, traceVariable in enumerate(root.iter("TraceVariable")):
+            if i == 0:
+                times = list(map(int, traceVariable.find("Timestamps").text.split(',')))
+                values = list(map(float, traceVariable.find("Values").text.split(',')))
+
+                if len(times) > 100000:
+                    string = "You have " + str(len(times)) + " samples in this trend.\n"
+                    string+= "This can cause unwanted slowness of the program.\n"
+                    string+= "A max range of 50000 to 90000 depending on the performace of the computer is desired.\n"
+                    string+= "You can decrease the number of samples below.\n"
+                    samples, resample = QInputDialog.getInt(self, "Warning:", string, len(times))
+
+                    if samples == len(times):
+                        resample = False
+
+                    if resample:
+                        factor = round(len(values) / samples)
+                        values = values[::factor]
+                        times = times[::factor]
+
+                times = list(map(int, times))
+                times = list(map(str, times))
+                self.setup(times)
+
+                self.traceVariables.append({'title'     : traceVariable.attrib['VarName'],
+                                            'timedict'  : list(self.timedict),
+                                            'values'    : values
+                                            })
+
+                pb = QProgressDialog("Generating...", "Cancel", 0, len(root.findall(".//TraceVariable")), self)
+
+            else:
+                t = Thread(target = self.openThread, args = (traceVariable, resample, factor))
+                t.start()
+                threads.append(t)
+
+            pb.setValue(i)
+            QApplication.processEvents()
+
+        for thread in threads:
+            thread.join()
+
+        pb.close()
+
+    def setup(self, times):
+        timedict = dict(enumerate(times))
+        self.plot.hide()
+        self.rightGrid.removeWidget(self.plot)
+        self.timedict = timedict
+        self.plot = pg.PlotWidget(axisItems={'bottom' : stringAxis(self.timedict, orientation="bottom")})
+        self.legend = pg.LegendItem()
+        self.legend.setParentItem(self.plot.getPlotItem())
+        self.rightGrid.addWidget(self.plot)
+
+    def open_studio5000(self, path):
+        with open(path) as csvfile:
+            csvreader = csv.reader(csvfile)
+
+            times = []
+            for row in csvreader:
+                try: times.append(row[2])
+                except IndexError: pass
+
+            times = times[3:]
+            self.setup(times)
+            csvfile.seek(0)
+
+            titles = []
+            values = []
+            afterHeader = False
+            for row in csvreader:
+                if afterHeader:
+                    for i in range(len(titles)):
+                        try: values[i].append(row[3+i])
+                        except IndexError: pass
+                if "Header:" in row:
+                    for cell in row:
+                        if "Program:" in cell:
+                            titles.append(cell.replace("Program:", ""))
+                    for i in range(len(titles)):
+                        values.append([])
+                    afterHeader = True
+
+            for i in range(len(titles)):
+                self.traceVariables.append({'title'     : titles[i],
+                                            'timedict'  : list(self.timedict),
+                                            'values'    : list(map(float, values[i]))
+                                            })
 
     def change(self, item):
         if not self.splitButton.isChecked():
@@ -191,9 +237,11 @@ class TraceViewer(QMainWindow):
 
     def region(self):
         if not self.regionButton.isChecked():
+            self.splitButton.setEnabled(True)
             self.regionButton.setChecked(False)
             self.plot.removeItem(self.region)
         else:
+            self.splitButton.setEnabled(False)
             self.regionButton.setChecked(True)
             xr = self.plot.viewRange()[0]
             w = xr[1] - xr[0]
@@ -205,14 +253,29 @@ class TraceViewer(QMainWindow):
 
     def update(self):
         if self.regionButton.isChecked():
+            tmp = self.region.getRegion()
             try:
-                tmp = self.region.getRegion()
-                f = int(self.timedict[int(tmp[1])])
-                s = int(self.timedict[int(tmp[0])])
-                tmp = "delta = " + str(f-s)
-            except:
+                f = self.timedict[int(tmp[1])]
+                s = self.timedict[int(tmp[0])]
+                try:
+                    tmp = "delta = " + str(int(f)-int(s))
+                except ValueError:
+                    fhour, fminute, fsecond = f.split(":")
+                    fsecond, fms = fsecond.split(";")
+                    f = time(int(fhour), int(fminute), int(fsecond), int(fms))
+                    f = datetime.combine(date.today(), f)
+
+                    shour, sminute, ssecond = s.split(":")
+                    ssecond, sms = ssecond.split(";")
+                    s = time(int(shour), int(sminute), int(ssecond), int(sms))
+                    s = datetime.combine(date.today(), s)
+
+                    tmp = str(f - s)
+            except KeyError:
                 tmp = "out of bounds error"
+
             self.status.showMessage(tmp)
+
             for i in range(self.selection.count()):
                 item = self.selection.item(i)
                 if item.checkState() == Qt.Checked:
@@ -234,6 +297,7 @@ class TraceViewer(QMainWindow):
 
     def split(self):
         if self.splitButton.isChecked():
+            self.regionButton.setEnabled(False)
             self.syncButton.setEnabled(True)
 
             self.plot.hide()
@@ -248,6 +312,7 @@ class TraceViewer(QMainWindow):
             self.splitButton.setChecked(True)
 
         else:
+            self.regionButton.setEnabled(True)
             self.syncButton.setEnabled(False)
 
             for plot in self.plots:
