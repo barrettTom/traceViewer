@@ -271,7 +271,7 @@ class TraceViewer(QMainWindow):
                     s = datetime.combine(date.today(), s)
 
                     tmp = str(f - s)
-            except KeyError:
+            except (KeyError, AttributeError):
                 tmp = "out of bounds error"
 
             self.status.showMessage(tmp)
